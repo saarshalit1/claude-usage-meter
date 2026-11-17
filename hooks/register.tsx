@@ -66,9 +66,6 @@ const statusText = (list: Limit[]) =>
 
 const warned = new Set<string>()
 
-const sameLimits = (a: Limit[], b: Limit[]) =>
-  a.length === b.length && a.every((l, i) => l.kind === b[i]?.kind && l.percentUsed === b[i]?.percentUsed)
-
 async function show($: EngineInterface, list: Limit[], at: number) {
   await update($, limits, () => list)
   await update($, updatedAt, () => at)
@@ -82,7 +79,7 @@ async function show($: EngineInterface, list: Limit[], at: number) {
   }
 }
 
-// A new reading from this session's own API responses: show it and share it.
+// A new reading, pushed by session.measure right after an API response: show it and share it.
 async function apply($: EngineInterface, list: Limit[]) {
   if (list.length === 0) return
   const clean = list.map(l => ({ kind: l.kind, percentUsed: l.percentUsed, resetsAt: l.resetsAt }))
@@ -97,12 +94,19 @@ async function syncFromStore($: EngineInterface) {
   if (isReading(latest) && latest.at > (await read($, updatedAt))) await show($, latest.limits, latest.at)
 }
 
-async function refresh($: EngineInterface) {
+// This session's last reading, whose age is unknown: shown only while nothing
+// fresher is known, and never shared, so it cannot pass for a new one.
+async function showOwnIfEmpty($: EngineInterface) {
   const usage = await $.session.usage()
-  if (usage.rateLimits.length > 0 && !sameLimits(usage.rateLimits, await read($, limits))) {
-    await apply($, usage.rateLimits)
+  if (usage.rateLimits.length > 0 && (await read($, updatedAt)) === 0) {
+    const clean = usage.rateLimits.map(l => ({ kind: l.kind, percentUsed: l.percentUsed, resetsAt: l.resetsAt }))
+    await show($, clean, 1)
   }
+}
+
+async function refresh($: EngineInterface) {
   await syncFromStore($)
+  await showOwnIfEmpty($)
   $.ui.toast('↻ Usage refreshed')
 }
 
@@ -123,16 +127,14 @@ export const register: Register = on => {
     if (typeof saved === 'string' && saved in PALETTES) await update($, palette, () => saved)
     if ((await $.store.get('collapsed')) === true) await update($, isCollapsed, () => true)
     await syncFromStore($)
-    // A resumed session's last reading may be older than what another session shared.
-    const usage = await $.session.usage()
-    if (usage.rateLimits.length > 0 && (await read($, updatedAt)) === 0) await apply($, usage.rateLimits)
+    await showOwnIfEmpty($)
     $.clock.every(60_000, () => void syncFromStore($))
     await $.command.register({ name: 'usage-meter', description: 'Show or hide the usage meter' })
     return result
   })
 
   on('session.measure', async ($, e, next) => {
-    if (e.changed.includes('rateLimits')) await apply($, e.rateLimits)
+    await apply($, e.rateLimits)
     return next(e)
   })
 
