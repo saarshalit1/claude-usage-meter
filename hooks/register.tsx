@@ -7,6 +7,12 @@ const limits = atom({ plugin: 'usage-meter', key: 'limits' } as const, [] as Lim
 const isHidden = atom({ plugin: 'usage-meter', key: 'isHidden' } as const, false)
 const palette = atom({ plugin: 'usage-meter', key: 'palette' } as const, 'neon')
 const isCollapsed = atom({ plugin: 'usage-meter', key: 'isCollapsed' } as const, false)
+const updatedAt = atom({ plugin: 'usage-meter', key: 'updatedAt' } as const, 0)
+
+// The freshest reading any session has seen, shared through the plugin's store.
+type Reading = { limits: Limit[]; at: number }
+const isReading = (v: unknown): v is Reading =>
+  typeof v === 'object' && v !== null && Array.isArray((v as Reading).limits) && typeof (v as Reading).at === 'number'
 
 const LABELS: Record<string, string> = { five_hour: '5H', seven_day: 'WEEK', spend_limit: 'SPEND' }
 const SHORT: Record<string, string> = { five_hour: '5h', seven_day: 'Week', spend_limit: 'Spend' }
@@ -60,17 +66,44 @@ const statusText = (list: Limit[]) =>
 
 const warned = new Set<string>()
 
-async function apply($: EngineInterface, list: Limit[]) {
-  const clean = list.map(l => ({ kind: l.kind, percentUsed: l.percentUsed, resetsAt: l.resetsAt }))
-  await update($, limits, () => clean)
-  $.ui.status(statusText(clean))
-  for (const l of clean) {
+const sameLimits = (a: Limit[], b: Limit[]) =>
+  a.length === b.length && a.every((l, i) => l.kind === b[i]?.kind && l.percentUsed === b[i]?.percentUsed)
+
+async function show($: EngineInterface, list: Limit[], at: number) {
+  await update($, limits, () => list)
+  await update($, updatedAt, () => at)
+  $.ui.status(statusText(list))
+  for (const l of list) {
     if (l.percentUsed >= 90 && !warned.has(l.kind)) {
       warned.add(l.kind)
       $.ui.toast(`🔥 Claude usage: ${SHORT[l.kind] ?? l.kind} at ${Math.round(l.percentUsed)}%`)
     }
     if (l.percentUsed < 80) warned.delete(l.kind)
   }
+}
+
+// A new reading from this session's own API responses: show it and share it.
+async function apply($: EngineInterface, list: Limit[]) {
+  if (list.length === 0) return
+  const clean = list.map(l => ({ kind: l.kind, percentUsed: l.percentUsed, resetsAt: l.resetsAt }))
+  const at = await $.clock.now()
+  await show($, clean, at)
+  await $.store.set('latest', { limits: clean, at })
+}
+
+// Take a fresher reading another session shared, if there is one.
+async function syncFromStore($: EngineInterface) {
+  const latest = await $.store.get('latest')
+  if (isReading(latest) && latest.at > (await read($, updatedAt))) await show($, latest.limits, latest.at)
+}
+
+async function refresh($: EngineInterface) {
+  const usage = await $.session.usage()
+  if (usage.rateLimits.length > 0 && !sameLimits(usage.rateLimits, await read($, limits))) {
+    await apply($, usage.rateLimits)
+  }
+  await syncFromStore($)
+  $.ui.toast('↻ Usage refreshed')
 }
 
 async function nextPalette($: EngineInterface) {
@@ -89,8 +122,11 @@ export const register: Register = on => {
     const saved = await $.store.get('palette')
     if (typeof saved === 'string' && saved in PALETTES) await update($, palette, () => saved)
     if ((await $.store.get('collapsed')) === true) await update($, isCollapsed, () => true)
+    await syncFromStore($)
+    // A resumed session's last reading may be older than what another session shared.
     const usage = await $.session.usage()
-    await apply($, usage.rateLimits)
+    if (usage.rateLimits.length > 0 && (await read($, updatedAt)) === 0) await apply($, usage.rateLimits)
+    $.clock.every(60_000, () => void syncFromStore($))
     await $.command.register({ name: 'usage-meter', description: 'Show or hide the usage meter' })
     return result
   })
@@ -145,7 +181,9 @@ export const register: Register = on => {
       <Box flexDirection="row" gap={1} alignItems="flex-start">
         {arrow}
         {list.map(l => {
-          const pct = Math.max(0, Math.min(100, l.percentUsed))
+          const isReset = l.resetsAt !== undefined && Date.parse(l.resetsAt) <= now
+          const used = isReset ? 0 : l.percentUsed
+          const pct = Math.max(0, Math.min(100, used))
           const tone = gradient(pal, pct / 100)
           return (
             <Box
@@ -159,11 +197,11 @@ export const register: Register = on => {
               <Box flexDirection="row">
                 <Text bold>{`${ICONS[l.kind] ?? '•'} ${LABELS[l.kind] ?? l.kind}`}</Text>
                 <Box flexGrow={1} />
-                <Text color={tone} bold>{`${Math.round(l.percentUsed)}%`}</Text>
+                <Text color={tone} bold>{`${Math.round(used)}%`}</Text>
                 <Text>{` ${mood(pct)}`}</Text>
               </Box>
               {bar(pct, tone)}
-              <Text dimColor>{resetText(l.resetsAt, now) || ' '}</Text>
+              <Text dimColor>{isReset ? '↻ just reset' : resetText(l.resetsAt, now) || ' '}</Text>
             </Box>
           )
         })}
@@ -181,6 +219,7 @@ export const register: Register = on => {
             </Box>
           ))}
         </Box>
+        <Button key="refresh" label="↻" plain dimColor onPress={() => refresh($)} />
       </Box>
     )
   })

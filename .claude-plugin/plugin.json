@@ -1,6 +1,6 @@
 {
   "name": "usage-meter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shows Claude usage percentages (5-hour and weekly limits) above the prompt and in the status line",
   "types": "./types/index.d.ts",
   "license": "MIT",

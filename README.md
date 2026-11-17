@@ -4,6 +4,7 @@ A Claude Code mod that shows your Claude subscription usage right above the prom
 
 - `▾` / `▸` (top left) collapses the meter to one short line, or expands it again.
 - `›` in the 🎨 card cycles through 8 color palettes: Neon, Ocean, Sunset, Claude, Matrix, Purple, Orange and Mono. Your choice is remembered.
+- `↻` (right) refreshes the meter, taking the freshest reading any of your local sessions has seen. Sessions on the same machine also share readings every minute.
 - `/usage-meter` hides or shows the meter.
 
 The figures come from Claude Code itself, so no API key or login is needed. They appear on a Pro or Max plan, after the first reply of a session.
