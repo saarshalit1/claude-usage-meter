@@ -9,6 +9,17 @@ A Claude Code mod that shows your Claude subscription usage right above the prom
 
 The figures come from Claude Code itself, so no API key or login is needed. They appear on a Pro or Max plan, after the first reply of a session.
 
+## Mac menu bar (optional)
+
+The mod also writes its latest reading to `~/.claude/usage-meter/latest.json`. The small app in `menubar/` shows it in the macOS menu bar (`⚡5H 82%  📅W 50%`), so the numbers are visible in every conversation, even with Claude closed. Click it for reset times, Refresh and Open at Login.
+
+```bash
+git clone https://github.com/saarshalit1/claude-usage-meter
+cd claude-usage-meter/menubar && ./build.sh && open "Claude Usage.app"
+```
+
+It needs the Xcode command line tools (`xcode-select --install`) and macOS 13 or newer.
+
 ## Install
 
 At the prompt of a terminal session:

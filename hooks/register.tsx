@@ -86,6 +86,20 @@ async function apply($: EngineInterface, list: Limit[]) {
   const at = await $.clock.now()
   await show($, clean, at)
   await $.store.set('latest', { limits: clean, at })
+  await shareWithMenuBar($, clean, at)
+}
+
+// The Mac menu bar app reads this file: ~/.claude/usage-meter/latest.json.
+async function shareWithMenuBar($: EngineInterface, list: Limit[], at: number) {
+  const marker = '/.claude/'
+  const i = $.plugin.root.indexOf(marker)
+  if (i < 0) return
+  const file = `${$.plugin.root.slice(0, i + marker.length)}usage-meter/latest.json`
+  try {
+    await $.fs.write(file, JSON.stringify({ limits: list, at }, null, 2))
+  } catch {
+    // The meter in Claude keeps working without the file.
+  }
 }
 
 // Take a fresher reading another session shared, if there is one.
