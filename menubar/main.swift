@@ -44,6 +44,8 @@ final class App: NSObject, NSApplicationDelegate {
     var timer: Timer?
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        item.autosaveName = "ClaudeUsageMeter"
+        item.button?.toolTip = "Claude usage: 5-hour · weekly"
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.refresh() }
     }
@@ -65,9 +67,8 @@ final class App: NSObject, NSApplicationDelegate {
                 let reset = date(l.resetsAt)
                 let isReset = reset.map { $0 <= now } ?? false
                 let used = isReset ? 0 : l.percentUsed
-                let (icon, short, long) = names[l.kind] ?? ("•", l.kind, l.kind)
-                if i > 0 { title.append(NSAttributedString(string: "  ", attributes: [.font: font])) }
-                title.append(NSAttributedString(string: "\(icon)\(short) ", attributes: [.font: font]))
+                let (icon, _, long) = names[l.kind] ?? ("•", l.kind, l.kind)
+                title.append(NSAttributedString(string: i == 0 ? "⚡" : " ", attributes: [.font: font]))
                 title.append(NSAttributedString(string: "\(Int(used.rounded()))%",
                                                 attributes: [.font: font, .foregroundColor: color(used)]))
 
@@ -84,7 +85,7 @@ final class App: NSObject, NSApplicationDelegate {
             menu.addItem(.separator())
             menu.addItem(updated)
         } else {
-            title.append(NSAttributedString(string: "⚡– 📅–", attributes: [.font: font]))
+            title.append(NSAttributedString(string: "⚡–", attributes: [.font: font]))
             let wait = NSMenuItem(title: "Waiting for a reply in Claude Code…", action: nil, keyEquivalent: "")
             wait.isEnabled = false
             menu.addItem(wait)
